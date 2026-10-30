@@ -62,14 +62,19 @@ How anyone downloads StayGone and turns on the watcher:
    ```
 
    (Replace `[user]` with your Windows user name.)
-5. Turn on the watcher:
+5. Turn on the watcher. This **must** be done in **Windows PowerShell opened
+   as administrator** (step 3): right-click **Windows PowerShell** -> **Run as
+   administrator** -> **Yes**. The window title should start with
+   "Administrator:". In that window, type:
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\StayGone.ps1 watch-on
    ```
 
-   You should see "Watcher is ON".
-6. Check it any time (no admin needed):
+   You should see "Watcher is ON". If you see "'watch-on' needs
+   administrator rights", close the window and redo step 3, making sure you
+   chose **Run as administrator**.
+6. Check it any time (a normal, non-administrator PowerShell is fine here):
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\StayGone.ps1 status
@@ -77,8 +82,12 @@ How anyone downloads StayGone and turns on the watcher:
 
 From then on, StayGone checks again 2 minutes after you sign in and after
 every Windows update. If anything came back, it removes it and shows a
-notification. To turn it off later, run the same command with `watch-off`
-(as administrator).
+notification. To turn it off later, open **Windows PowerShell as
+administrator** again, go to the same folder, and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\StayGone.ps1 watch-off
+```
 
 ## Setup and run (details)
 
