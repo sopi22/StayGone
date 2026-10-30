@@ -216,7 +216,11 @@ switch ($Command) {
         $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         if ($task) {
             $info = $task | Get-ScheduledTaskInfo
-            Write-Host "Watcher: ON ($($task.State)). Last run: $($info.LastRunTime)  Result: $($info.LastTaskResult)" -ForegroundColor Green
+            # Windows reports a never-run task as year 1999 / code 267011.
+            if ($info.LastRunTime.Year -lt 2000 -or $info.LastTaskResult -eq 267011) { $last = 'not yet (it runs after your next sign-in or Windows update)' }
+            elseif ($info.LastTaskResult -eq 0) { $last = "$($info.LastRunTime) - finished OK" }
+            else { $last = "$($info.LastRunTime) - ended with code $($info.LastTaskResult) (see: .\StayGone.ps1 log)" }
+            Write-Host "Watcher: ON. Last run: $last" -ForegroundColor Green
         } else {
             Write-Host "Watcher: OFF. Turn it on with: .\StayGone.ps1 watch-on (as administrator)" -ForegroundColor Yellow
         }
