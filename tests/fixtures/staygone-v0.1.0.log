@@ -1,0 +1,20 @@
+﻿2026-10-31 01:50:53  Restored Microsoft.Xbox.TCUI (taken off the blocklist)
+2026-10-31 01:54:13  Removed Clipchamp.Clipchamp (trigger: manual)
+2026-10-31 01:54:13  FAILED to deprovision Microsoft.549981C3F5F10: The system cannot find the path specified.
+
+2026-10-31 01:54:14  Removed Microsoft.BingNews (trigger: manual)
+2026-10-31 01:54:14  Removed Microsoft.BingSearch (trigger: manual)
+2026-10-31 01:54:16  Removed Microsoft.GetHelp (trigger: manual)
+2026-10-31 01:54:16  FAILED to deprovision Microsoft.Getstarted: The system cannot find the path specified.
+
+2026-10-31 01:54:17  Removed Microsoft.MicrosoftOfficeHub (trigger: manual)
+2026-10-31 01:54:17  FAILED to deprovision Microsoft.MicrosoftSolitaireCollection: The system cannot find the path specified.
+
+2026-10-31 01:54:18  Removed Microsoft.PowerAutomateDesktop (trigger: manual)
+2026-10-31 01:54:18  Removed Microsoft.Todos (trigger: manual)
+2026-10-31 01:54:19  Removed Microsoft.WindowsFeedbackHub (trigger: manual)
+2026-10-31 01:54:19  Removed Microsoft.XboxSpeechToTextOverlay (trigger: manual)
+2026-10-31 01:54:20  Removed MicrosoftTeams (trigger: manual)
+2026-10-31 01:54:20  Removed MSTeams (trigger: manual)
+2026-10-31 02:10:25  Mode set to 'ask first' for MSTeams (1 entries)
+2026-10-31 02:10:27  Mode set to 'always remove' for MSTeams (1 entries)

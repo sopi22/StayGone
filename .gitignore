@@ -7,3 +7,6 @@ blocklist.txt
 # Test output
 testResults.xml
 coverage.xml
+# ...except the sample files the tests use
+!tests/fixtures/*.log
+!tests/fixtures/*.json
