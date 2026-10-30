@@ -1,0 +1,40 @@
+# StayGone blocklist - one app package name per line. '*' wildcards work.
+# Lines starting with '#' are ignored. Find package names with:
+#     Get-AppxPackage | Select-Object Name
+#
+# Your own copy lives in C:\ProgramData\StayGone\blocklist.txt
+# (open it with: .\StayGone.ps1 edit). This file is only the starting point.
+#
+# Core Windows parts (Store, App Installer, Windows Security, Photos,
+# Calculator, Notepad, Terminal, ...) are protected in code and are never
+# removed, even if you list them here.
+
+# Xbox apps (keep these if you play PC games through Xbox / Game Pass)
+Microsoft.GamingApp
+Microsoft.XboxApp
+Microsoft.Xbox.TCUI
+Microsoft.XboxSpeechToTextOverlay
+
+# Promoted / trial apps
+Clipchamp.Clipchamp
+Microsoft.MicrosoftSolitaireCollection
+Microsoft.MicrosoftOfficeHub
+Microsoft.PowerAutomateDesktop
+Microsoft.Todos
+MicrosoftTeams
+MSTeams
+
+# News, search and help apps
+Microsoft.BingNews
+Microsoft.BingSearch
+Microsoft.GetHelp
+Microsoft.Getstarted
+Microsoft.WindowsFeedbackHub
+Microsoft.549981C3F5F10
+
+# Optional - remove the '#' to block these too:
+# Microsoft.XboxGamingOverlay       # Game Bar (also does screen recording, Win+G)
+# Microsoft.XboxIdentityProvider    # needed to sign in to some PC games
+# Microsoft.BingWeather
+# Microsoft.OutlookForWindows       # the new Outlook app
+# Microsoft.Copilot
