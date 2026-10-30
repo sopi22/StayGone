@@ -1,0 +1,9 @@
+# Local data and logs (StayGone itself writes to C:\ProgramData\StayGone, never here)
+*.log
+removed.json
+blocklist.txt
+.env
+*.local.*
+# Test output
+testResults.xml
+coverage.xml

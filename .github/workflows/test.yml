@@ -1,0 +1,24 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pester:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Pester tests (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.5
+          Import-Module Pester -MinimumVersion 5.5
+          $c = New-PesterConfiguration
+          $c.Run.Path = '.\tests'
+          $c.Run.Exit = $true
+          $c.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $c
