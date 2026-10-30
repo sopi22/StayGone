@@ -1,0 +1,28 @@
+﻿[
+    {
+        "value":  [
+                      {
+                          "value":  [
+                                        "@{value=System.Object[]; Count=2}",
+                                        "@{Name=Microsoft.XboxSpeechToTextOverlay; PackageFamilyName=Microsoft.XboxSpeechToTextOverlay_8wekyb3d8bbwe; Version=1.97.17002.0; RemovedAt=2026-10-31T01:54:19; Trigger=manual}"
+                                    ],
+                          "Count":  2
+                      },
+                      {
+                          "Name":  "MicrosoftTeams",
+                          "PackageFamilyName":  "MicrosoftTeams_8wekyb3d8bbwe",
+                          "Version":  "25275.2501.4002.4859",
+                          "RemovedAt":  "2026-10-31T01:54:20",
+                          "Trigger":  "manual"
+                      }
+                  ],
+        "Count":  2
+    },
+    {
+        "Name":  "MSTeams",
+        "PackageFamilyName":  "MSTeams_8wekyb3d8bbwe",
+        "Version":  "26163.405.4842.717",
+        "RemovedAt":  "2026-10-31T01:54:20",
+        "Trigger":  "manual"
+    }
+]

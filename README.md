@@ -40,7 +40,47 @@ projects influenced its design:
 
 No code was copied from either project.
 
-## Setup and run
+## Quick start (step by step)
+
+How anyone downloads StayGone and turns on the watcher:
+
+1. Go to https://github.com/sopi22/StayGone
+2. Click the green **Code** button -> **Download ZIP**. Open your Downloads
+   folder, right-click the ZIP -> **Extract All...** -> **Extract**.
+3. Click **Start**, type **PowerShell**, right-click **Windows PowerShell** ->
+   **Run as administrator** -> **Yes**.
+4. Go to the folder. If you cloned or copied StayGone to your user folder, type:
+
+   ```powershell
+   cd C:\Users\[user]\StayGone
+   ```
+
+   For a fresh download, use the extracted folder instead, e.g.:
+
+   ```powershell
+   cd $HOME\Downloads\StayGone-main\StayGone-main
+   ```
+
+   (Replace `[user]` with your Windows user name.)
+5. Turn on the watcher:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\StayGone.ps1 watch-on
+   ```
+
+   You should see "Watcher is ON".
+6. Check it any time (no admin needed):
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\StayGone.ps1 status
+   ```
+
+From then on, StayGone checks again 2 minutes after you sign in and after
+every Windows update. If anything came back, it removes it and shows a
+notification. To turn it off later, run the same command with `watch-off`
+(as administrator).
+
+## Setup and run (details)
 
 1. Download: click **Code -> Download ZIP** on this page and extract it, or:
 
@@ -76,6 +116,9 @@ system's settings.
 |---|---|---|
 | `check` | Shows which blocklisted apps are installed (read-only) | no* |
 | `remove [-WhatIf]` | Removes them now for all users, including hidden copies | yes |
+| `review` | Opens a window to pick exactly which blocklisted apps to remove now | yes |
+| `ask <App\|all>` | Ask before removing this app (e.g. `ask MSTeams`) | no |
+| `always <App\|all>` | Go back to removing this app automatically | no |
 | `watch-on` | Installs the watcher (runs after updates and at sign-in) | yes |
 | `watch-off` | Removes the watcher | yes |
 | `status` | Is the watcher on? When did it last run? | no |
@@ -104,6 +147,29 @@ or the hidden copies. It says so when that happens.
 - **Undo:** `restore <App>` stops StayGone from removing it and opens the
   app's Microsoft Store page so you can reinstall it.
 - **Log** of every removal: `C:\ProgramData\StayGone\staygone.log`.
+
+## Choosing per update ("ask first")
+
+Maybe you want Teams back for a school term, but not forever. Mark it
+"ask first":
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\StayGone.ps1 ask MSTeams
+```
+
+(or put a `?` in front of it in the blocklist: `?MSTeams`). From then on:
+
+- Apps **without** `?` are still removed automatically.
+- When an "ask first" app comes back after an update, StayGone opens a small
+  window listing it. **Select the ones to remove** (Ctrl+click for several)
+  and click OK. Anything you leave unselected stays, and StayGone asks again
+  after the next update.
+- If no one is signed in to answer, nothing "ask first" is removed. You get a
+  notification instead, and can choose later with `review`.
+- `review` (as administrator) opens the same window for *everything* on your
+  blocklist that's installed right now.
+- `always MSTeams` switches it back. `ask all` / `always all` switch every
+  entry at once.
 
 ## Where StayGone keeps its files
 

@@ -16,11 +16,13 @@
     .\StayGone.ps1 remove -WhatIf   # show what would be removed, change nothing
     .\StayGone.ps1 remove           # remove now (run as administrator)
     .\StayGone.ps1 watch-on         # install the automatic watcher (administrator)
+    .\StayGone.ps1 ask MSTeams      # let me choose before Teams is removed
+    .\StayGone.ps1 review           # pick which blocklisted apps to remove now
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('check', 'remove', 'watch-on', 'watch-off', 'status', 'restore', 'list', 'edit', 'log', 'about', 'help', 'run-watch')]
+    [ValidateSet('check', 'remove', 'review', 'ask', 'always', 'watch-on', 'watch-off', 'status', 'restore', 'list', 'edit', 'log', 'about', 'help', 'run-watch')]
     [string]$Command = 'help',
 
     [Parameter(Position = 1)]
@@ -56,8 +58,45 @@ function Write-Plan([object[]]$Plan) {
     }
 }
 
+function Get-Plan($State) {
+    $entries = @(Get-StayGoneBlocklist)
+    $all = @($entries | ForEach-Object { $_.Pattern })
+    $ask = @($entries | Where-Object Ask | ForEach-Object { $_.Pattern })
+    return @(Get-StayGonePlan -Patterns $all -AskPatterns $ask -Installed $State.Installed -Provisioned $State.Provisioned)
+}
+
+function Select-AppsToRemove([object[]]$Rows, [string]$Title) {
+    # Small selection window (built into Windows PowerShell). Returns the
+    # chosen names, an empty list if the user chose none, or $null if no
+    # window could be shown (e.g. no one is signed in).
+    if ($Rows.Count -eq 0) { return @() }
+    try {
+        $view = $Rows | Select-Object @{ n = 'App'; e = { $_.Name } },
+            @{ n = 'Installed'; e = { if ($_.Installed) { 'yes' } else { 'no' } } },
+            @{ n = 'Mode'; e = { if ($_.Action -eq 'Ask') { 'ask first' } else { 'always remove' } } }
+        return @($view | Out-GridView -Title $Title -OutputMode Multiple -ErrorAction Stop | ForEach-Object { $_.App })
+    } catch {
+        Write-StayGoneLog "Selection window not available: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Set-Mode([string]$App, [bool]$Ask) {
+    if (-not $App) { Write-Host "Usage: .\StayGone.ps1 $(if ($Ask) {'ask'} else {'always'}) <AppName|all>"; exit 1 }
+    $r = Set-BlocklistEntryMode -Lines (Get-Content $paths.Blocklist) -Name $App -Ask:$Ask
+    if ($r.Changed) {
+        Set-Content -Path $paths.Blocklist -Value $r.Lines -Encoding UTF8
+        $mode = if ($Ask) { 'ask first' } else { 'always remove' }
+        Write-StayGoneLog "Mode set to '$mode' for $App ($($r.Changed) entries)"
+        Write-Host "$App -> $mode ($($r.Changed) entr$(if ($r.Changed -eq 1) {'y'} else {'ies'}) changed)." -ForegroundColor Green
+    } else {
+        Write-Host "No change: '$App' isn't an active blocklist entry, or it's already set that way."
+    }
+}
+
 function Write-StaleNote($State) {
-    $n = @($State.Stale | Where-Object { Test-StayGoneMatch -Name $_.DisplayName -Patterns @(Get-StayGoneBlocklist) }).Count
+    $patterns = @(Get-StayGoneBlocklist | ForEach-Object { $_.Pattern })
+    $n = @($State.Stale | Where-Object { Test-StayGoneMatch -Name $_.DisplayName -Patterns $patterns }).Count
     if ($n) { Write-Host "Ignored $n leftover record(s) of blocklisted apps whose files are already gone (harmless)." -ForegroundColor DarkGray }
 }
 
@@ -68,7 +107,7 @@ switch ($Command) {
     'check' {
         $admin = Test-StayGoneAdmin
         $state = Get-StayGoneSystemState -AllUsers:$admin
-        $plan = @(Get-StayGonePlan -Patterns @(Get-StayGoneBlocklist) -Installed $state.Installed -Provisioned $state.Provisioned)
+        $plan = Get-Plan $state
         if (-not $admin) {
             Write-Host "Not running as administrator: showing only YOUR apps, not other users' or the hidden copies." -ForegroundColor Yellow
         }
@@ -80,9 +119,17 @@ switch ($Command) {
     'remove' {
         Assert-Admin 'remove'
         $state = Get-StayGoneSystemState -AllUsers
-        $plan = @(Get-StayGonePlan -Patterns @(Get-StayGoneBlocklist) -Installed $state.Installed -Provisioned $state.Provisioned)
+        $plan = Get-Plan $state
         Write-Plan $plan
         Write-StaleNote $state
+        $askRows = @($plan | Where-Object Action -eq 'Ask')
+        if ($askRows.Count -and -not $WhatIfPreference) {
+            $chosen = Select-AppsToRemove $askRows 'StayGone - these apps are set to "ask first". Select the ones to remove (Ctrl+click for several), then OK'
+            if ($null -eq $chosen) { Write-Host "Skipped 'ask first' apps (no selection window). Use 'review' to choose." -ForegroundColor Yellow }
+            else { foreach ($row in $askRows) { if ($chosen -contains $row.Name) { $row.Action = 'Remove' } } }
+        } elseif ($askRows.Count) {
+            Write-Host "'Ask first' apps would open a selection window: $(($askRows.Name) -join ', ')" -ForegroundColor Cyan
+        }
         $removed = @(Invoke-StayGoneRemoval -Plan $plan -Trigger 'manual' -WhatIf:$WhatIfPreference)
         if ($WhatIfPreference) { Write-Host "WhatIf: nothing was changed." -ForegroundColor Cyan }
         elseif ($removed.Count) { Write-Host "Removed: $($removed -join ', ')" -ForegroundColor Green }
@@ -98,11 +145,43 @@ switch ($Command) {
             if ($recent) { $trigger = 'update' }
         } catch { }
         $state = Get-StayGoneSystemState -AllUsers
-        $plan = @(Get-StayGonePlan -Patterns @(Get-StayGoneBlocklist) -Installed $state.Installed -Provisioned $state.Provisioned)
+        $plan = Get-Plan $state
+        $askRows = @($plan | Where-Object Action -eq 'Ask')
+        $pending = @()
+        if ($askRows.Count) {
+            $when = if ($trigger -eq 'update') { 'after a Windows update' } else { 'since you last signed in' }
+            $chosen = Select-AppsToRemove $askRows "StayGone - these apps came back $when. Select the ones to REMOVE (Ctrl+click for several). Unselected apps stay."
+            if ($null -eq $chosen) { $pending = @($askRows.Name) }
+            else {
+                foreach ($row in $askRows) {
+                    if ($chosen -contains $row.Name) { $row.Action = 'Remove' } else { Write-StayGoneLog "Kept $($row.Name) this time (your choice)" }
+                }
+            }
+        }
         $removed = @(Invoke-StayGoneRemoval -Plan $plan -Trigger $trigger)
-        Write-StayGoneLog "Watcher run ($trigger): $($removed.Count) removed"
+        Write-StayGoneLog "Watcher run ($trigger): $($removed.Count) removed, $($pending.Count) waiting for your choice"
         $note = Format-StayGoneNotification -Removed $removed -Trigger $trigger
         if ($note) { $null = Show-StayGoneNotification -Title $note.Title -Text $note.Text }
+        $wait = Format-StayGonePendingNotification -Pending $pending
+        if ($wait) { $null = Show-StayGoneNotification -Title $wait.Title -Text $wait.Text }
+    }
+
+    'review' {
+        # Pick exactly which blocklisted apps to remove right now.
+        Assert-Admin 'review'
+        $state = Get-StayGoneSystemState -AllUsers
+        $rows = @(Get-Plan $state | Where-Object { $_.Action -ne 'Protected' })
+        if ($rows.Count -eq 0) { Write-Host "Nothing from your blocklist is installed. All clear." -ForegroundColor Green; break }
+        $chosen = Select-AppsToRemove $rows 'StayGone - select the apps to remove now (Ctrl+click for several), then OK. Unselected apps stay.'
+        if ($null -eq $chosen) { Write-Host "Couldn't open the selection window." -ForegroundColor Yellow; exit 1 }
+        foreach ($row in $rows) { if ($chosen -contains $row.Name) { $row.Action = 'Remove' } else { $row.Action = 'Keep' } }
+        $removed = @(Invoke-StayGoneRemoval -Plan $rows -Trigger 'review' -WhatIf:$WhatIfPreference)
+        if ($removed.Count) { Write-Host "Removed: $($removed -join ', ')" -ForegroundColor Green } else { Write-Host "Nothing removed." }
+    }
+
+    'ask'    { Set-Mode $Name $true }
+
+    'always' { Set-Mode $Name $false
     }
 
     'watch-on' {
@@ -141,9 +220,10 @@ switch ($Command) {
         } else {
             Write-Host "Watcher: OFF. Turn it on with: .\StayGone.ps1 watch-on (as administrator)" -ForegroundColor Yellow
         }
-        Write-Host "Blocklist: $(@(Get-StayGoneBlocklist).Count) entries in $($paths.Blocklist)"
+        $entries = @(Get-StayGoneBlocklist)
+        Write-Host "Blocklist: $($entries.Count) entries ($(@($entries | Where-Object Ask).Count) set to 'ask first') in $($paths.Blocklist)"
         if (Test-Path $paths.State) {
-            $n = @(Get-Content $paths.State -Raw | ConvertFrom-Json).Count
+            $n = @(Get-StayGoneRemovedRecords).Count
             Write-Host "Removals recorded so far: $n"
         }
     }
@@ -160,7 +240,7 @@ switch ($Command) {
         }
         $pfn = ''
         if (Test-Path $paths.State) {
-            $rec = @(Get-Content $paths.State -Raw | ConvertFrom-Json) | Where-Object { $_.Name -eq $Name -and $_.PackageFamilyName } | Select-Object -Last 1
+            $rec = @(Get-StayGoneRemovedRecords) | Where-Object { $_.Name -eq $Name -and $_.PackageFamilyName } | Select-Object -Last 1
             if ($rec) { $pfn = $rec.PackageFamilyName }
         }
         if ($pfn) {
@@ -175,7 +255,7 @@ switch ($Command) {
     'list' {
         $items = @(Get-StayGoneBlocklist)
         Write-Host "Blocklist ($($items.Count) entries) - $($paths.Blocklist)"
-        $items | ForEach-Object { Write-Host "  $_" }
+        $items | ForEach-Object { if ($_.Ask) { Write-Host "  $($_.Pattern)   (ask first)" -ForegroundColor Cyan } else { Write-Host "  $($_.Pattern)" } }
     }
 
     'edit' { Start-Process notepad.exe $paths.Blocklist }
@@ -197,6 +277,9 @@ $AppName $AppVersion - keeps removed Windows bloatware gone.
 
   check              Show which blocklisted apps are installed (read-only)
   remove [-WhatIf]   Remove them now for all users, incl. hidden copies  (admin)
+  review             Pick exactly which blocklisted apps to remove now    (admin)
+  ask <App|all>      Ask before removing this app (e.g. ask MSTeams)
+  always <App|all>   Remove this app automatically again
   watch-on           Re-remove automatically after updates and at sign-in (admin)
   watch-off          Turn the automatic watcher off                       (admin)
   status             Is the watcher on? When did it last run?

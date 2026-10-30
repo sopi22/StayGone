@@ -150,3 +150,97 @@ Describe 'Select-LiveProvisioned' {
     }
 }
 
+
+Describe 'Ask-first entries' {
+    It 'parses a leading ? as "ask first"' {
+        $e = @(ConvertFrom-BlocklistEntries -Lines @('Microsoft.GamingApp', '?MSTeams   # school term', '# ?Ignored'))
+        $e.Count | Should -Be 2
+        $e[0].Ask | Should -BeFalse
+        $e[1].Pattern | Should -Be 'MSTeams'
+        $e[1].Ask | Should -BeTrue
+    }
+    It 'still returns plain patterns for every entry' {
+        @(ConvertFrom-BlocklistText -Lines @('?MSTeams', 'Clipchamp.Clipchamp')) | Should -Be @('MSTeams', 'Clipchamp.Clipchamp')
+    }
+    It 'marks ask-first apps as Ask in the plan, others as Remove' {
+        $plan = @(Get-StayGonePlan -Patterns @('MSTeams', 'Clipchamp.Clipchamp') -AskPatterns @('MSTeams') -Installed @(New-Pkg 'MSTeams'; New-Pkg 'Clipchamp.Clipchamp'))
+        ($plan | Where-Object Name -eq 'MSTeams').Action | Should -Be 'Ask'
+        ($plan | Where-Object Name -eq 'Clipchamp.Clipchamp').Action | Should -Be 'Remove'
+    }
+    It 'keeps protection stronger than ask-first' {
+        $plan = @(Get-StayGonePlan -Patterns @('Microsoft.WindowsStore') -AskPatterns @('Microsoft.WindowsStore') -Installed @(New-Pkg 'Microsoft.WindowsStore'))
+        $plan[0].Action | Should -Be 'Protected'
+    }
+}
+
+Describe 'Set-BlocklistEntryMode' {
+    It 'switches one app to ask-first and keeps its comment' {
+        $r = Set-BlocklistEntryMode -Lines @('Microsoft.GamingApp', 'MSTeams   # meetings') -Name 'msteams' -Ask
+        $r.Changed | Should -Be 1
+        $r.Lines[0] | Should -Be 'Microsoft.GamingApp'
+        $r.Lines[1] | Should -Be '?MSTeams   # meetings'
+    }
+    It 'switches back to always-remove' {
+        $r = Set-BlocklistEntryMode -Lines @('?MSTeams') -Name 'MSTeams'
+        $r.Lines[0] | Should -Be 'MSTeams'
+    }
+    It 'switches every active entry with "all" and leaves comments alone' {
+        $r = Set-BlocklistEntryMode -Lines @('# header', 'A', '?B', 'C') -Name 'all' -Ask
+        $r.Changed | Should -Be 2
+        $r.Lines | Should -Be @('# header', '?A', '?B', '?C')
+    }
+    It 'reports no change for an unknown app' {
+        (Set-BlocklistEntryMode -Lines @('A') -Name 'Z' -Ask).Changed | Should -Be 0
+    }
+    It 'lets restore find an ask-first entry' {
+        $r = Set-BlocklistEntryRestored -Lines @('?MSTeams') -Name 'MSTeams' -Date '2026-10-31'
+        $r.Changed | Should -BeTrue
+        $r.Lines[0] | Should -Be '# MSTeams    # restored 2026-10-31'
+    }
+}
+
+Describe 'Format-StayGonePendingNotification' {
+    It 'tells the user to run review' {
+        $n = Format-StayGonePendingNotification -Pending @('MSTeams')
+        $n.Title | Should -Match '1 app\(s\) came back'
+        $n.Text | Should -Match 'review'
+    }
+    It 'returns nothing when nothing is pending' {
+        Format-StayGonePendingNotification -Pending @() | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Removal record (removed.json)' {
+    It 'recovers every record from a file scrambled by v0.1.0' {
+        $json = Get-Content (Join-Path $PSScriptRoot 'fixtures\removed-v0.1.0.json') -Raw
+        $records = @(ConvertFrom-StayGoneRecordJson -Json $json)
+        # Only 3 records survived the v0.1.0 bug inside the file itself...
+        $records.Count | Should -Be 3
+        ($records | Where-Object Name -eq 'MSTeams').PackageFamilyName | Should -Match '^MSTeams_'
+    }
+    It 'rebuilds the lost records from the log, without duplicates' {
+        $json = Get-Content (Join-Path $PSScriptRoot 'fixtures\removed-v0.1.0.json') -Raw
+        $log = Get-Content (Join-Path $PSScriptRoot 'fixtures\staygone-v0.1.0.log')
+        $all = @(Merge-StayGoneLogRecords -Records @(ConvertFrom-StayGoneRecordJson -Json $json) -LogLines $log)
+        # ...and the log has all 11 removals.
+        $all.Count | Should -Be 11
+        @($all.Name | Sort-Object -Unique).Count | Should -Be 11
+        ($all | Where-Object Name -eq 'Clipchamp.Clipchamp').Trigger | Should -Be 'manual'
+        ($all | Where-Object Name -eq 'MSTeams').PackageFamilyName | Should -Match '^MSTeams_'
+    }
+    It 'writes a plain array that reads back identically' {
+        $in = @(
+            [pscustomobject]@{ Name = 'A'; PackageFamilyName = 'A_x'; Version = '1'; RemovedAt = '2026-10-31T01:00:00'; Trigger = 'manual' }
+            [pscustomobject]@{ Name = 'B'; PackageFamilyName = 'B_x'; Version = '2'; RemovedAt = '2026-10-31T02:00:00'; Trigger = 'update' }
+        )
+        $json = ConvertTo-StayGoneRecordJson -Records $in
+        $json | Should -Not -Match '"value"'
+        $out = @(ConvertFrom-StayGoneRecordJson -Json $json)
+        $out.Count | Should -Be 2
+        $out[1].Trigger | Should -Be 'update'
+    }
+    It 'handles a single record and an empty file' {
+        @(ConvertFrom-StayGoneRecordJson -Json (ConvertTo-StayGoneRecordJson -Records @([pscustomobject]@{ Name = 'A' }))).Count | Should -Be 1
+        @(ConvertFrom-StayGoneRecordJson -Json '').Count | Should -Be 0
+    }
+}

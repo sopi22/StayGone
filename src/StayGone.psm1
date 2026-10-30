@@ -9,7 +9,7 @@
 Set-StrictMode -Version 2.0
 
 $script:AppName    = 'StayGone'
-$script:AppVersion = '0.1.0'
+$script:AppVersion = '0.2.0'
 $script:Author     = 'Jhoana Sophia C. Munar'
 $script:RepoUrl    = 'https://github.com/sopi22/StayGone'
 $script:TaskName   = 'StayGone Watcher'
@@ -58,16 +58,26 @@ function Get-StayGonePaths {
 
 # ---------------------------------------------------------- pure logic
 
-function ConvertFrom-BlocklistText {
-    <# Turns blocklist file lines into package-name patterns.
-       Blank lines and '#' comments are ignored; '*' wildcards are allowed. #>
+function ConvertFrom-BlocklistEntries {
+    <# Parses blocklist lines into entries. Blank lines and '#' comments are
+       ignored; '*' wildcards are allowed. A leading '?' marks an app as
+       "ask first": StayGone lets you choose before removing it. #>
     param([string[]]$Lines)
-    $patterns = @()
+    $entries = @()
     foreach ($line in $Lines) {
         $clean = ($line -replace '#.*$', '').Trim()
-        if ($clean) { $patterns += $clean }
+        if (-not $clean) { continue }
+        $ask = $clean.StartsWith('?')
+        $pattern = $clean.TrimStart('?').Trim()
+        if ($pattern) { $entries += [pscustomobject]@{ Pattern = $pattern; Ask = $ask } }
     }
-    return $patterns
+    return $entries
+}
+
+function ConvertFrom-BlocklistText {
+    <# All blocklist patterns (both "always remove" and "ask first"). #>
+    param([string[]]$Lines)
+    return @(ConvertFrom-BlocklistEntries -Lines $Lines | ForEach-Object { $_.Pattern })
 }
 
 function Test-StayGoneProtected {
@@ -91,9 +101,11 @@ function Get-StayGonePlan {
        -Installed:   objects with Name, PackageFamilyName, Version (installed for some user)
        -Provisioned: objects with DisplayName, PackageName (the hidden copy Windows
                      uses to reinstall the app for every user, e.g. after updates)
-       Returns one row per matched app with Action = Remove | Protected. #>
+       -AskPatterns: subset of patterns marked "ask first" with '?'.
+       Returns one row per matched app with Action = Remove | Ask | Protected. #>
     param(
         [string[]]$Patterns,
+        [string[]]$AskPatterns = @(),
         [object[]]$Installed = @(),
         [object[]]$Provisioned = @()
     )
@@ -119,9 +131,22 @@ function Get-StayGonePlan {
         }
     }
     foreach ($row in $rows.Values) {
-        if (Test-StayGoneProtected -Name $row.Name) { $row.Action = 'Protected' } else { $row.Action = 'Remove' }
+        if (Test-StayGoneProtected -Name $row.Name) { $row.Action = 'Protected' }
+        elseif ($AskPatterns -and (Test-StayGoneMatch -Name $row.Name -Patterns $AskPatterns)) { $row.Action = 'Ask' }
+        else { $row.Action = 'Remove' }
     }
     return @($rows.Values | Sort-Object Name)
+}
+
+function Format-StayGonePendingNotification {
+    <# Text for "ask first" apps that came back while no choice could be made. #>
+    param([string[]]$Pending)
+    if (-not $Pending -or $Pending.Count -eq 0) { return $null }
+    $names = ($Pending | ForEach-Object { $_ -replace '^Microsoft\.', '' }) -join ', '
+    [pscustomobject]@{
+        Title = "StayGone: $($Pending.Count) app(s) came back and need your choice"
+        Text  = "$names. Run 'StayGone.ps1 review' as administrator to choose what to remove."
+    }
 }
 
 function Format-StayGoneNotification {
@@ -149,9 +174,9 @@ function Set-BlocklistEntryRestored {
     $changed = $false
     $out = foreach ($line in $Lines) {
         $clean = ($line -replace '#.*$', '').Trim()
-        if ($clean -and ($clean -ieq $Name)) {
+        if ($clean -and ($clean.TrimStart('?').Trim() -ieq $Name)) {
             $changed = $true
-            "# $clean    # restored $Date"
+            "# $($clean.TrimStart('?').Trim())    # restored $Date"
         } else { $line }
     }
     [pscustomobject]@{ Lines = @($out); Changed = $changed }
@@ -171,6 +196,97 @@ function Select-LiveProvisioned {
         if ($location -and -not (& $PathExists $folder)) { $stale += $prov } else { $live += $prov }
     }
     [pscustomobject]@{ Live = $live; Stale = $stale }
+}
+
+function Set-BlocklistEntryMode {
+    <# Switches blocklist entries between "always remove" and "ask first"
+       ('?' prefix). -Name 'all' switches every active entry. Returns the new
+       lines and how many entries changed. #>
+    param([string[]]$Lines, [string]$Name, [switch]$Ask)
+    $count = 0
+    $out = foreach ($line in $Lines) {
+        $comment = ''
+        if ($line -match '(\s*#.*)$') { $comment = $Matches[1] }
+        $clean = ($line -replace '#.*$', '').Trim()
+        $pattern = $clean.TrimStart('?').Trim()
+        if ($pattern -and ($Name -ieq 'all' -or $pattern -ieq $Name)) {
+            $wasAsk = $clean.StartsWith('?')
+            if ($Ask -and -not $wasAsk) { $count++; "?$pattern$comment" }
+            elseif (-not $Ask -and $wasAsk) { $count++; "$pattern$comment" }
+            else { $line }
+        } else { $line }
+    }
+    [pscustomobject]@{ Lines = @($out); Changed = $count }
+}
+
+function ConvertFrom-StayGoneRecordJson {
+    <# Reads the removal record (removed.json) into a flat list of records.
+       Also recovers files written by v0.1.0, where a Windows PowerShell 5.1
+       quirk nested the list inside {"value": [...], "Count": n} wrappers and
+       turned older entries into "@{Name=...; ...}" strings. #>
+    param([string]$Json)
+    if (-not $Json -or -not $Json.Trim()) { return @() }
+    $flat = New-Object System.Collections.Generic.List[object]
+    $visit = $null
+    $visit = {
+        param($node)
+        if ($null -eq $node) { return }
+        if ($node -is [string]) {
+            if ($node -match '^@\{Name=([^;]*); PackageFamilyName=([^;]*); Version=([^;]*); RemovedAt=([^;]*); Trigger=([^}]*)\}$') {
+                $flat.Add([pscustomobject]@{ Name = $Matches[1]; PackageFamilyName = $Matches[2]; Version = $Matches[3]; RemovedAt = $Matches[4]; Trigger = $Matches[5] })
+            }
+            return
+        }
+        if ($node -is [System.Array]) { foreach ($item in $node) { & $visit $item }; return }
+        $names = @($node.PSObject.Properties.Name)
+        if ($names -contains 'Name') { $flat.Add($node); return }
+        if ($names -contains 'value') { & $visit $node.value }
+    }
+    & $visit ($Json | ConvertFrom-Json)
+    return $flat.ToArray()
+}
+
+function ConvertTo-StayGoneRecordJson {
+    <# Writes records as a plain JSON array, one object per record. Built by
+       hand on purpose: ConvertTo-Json in Windows PowerShell 5.1 can wrap
+       arrays in {"value": ..., "Count": ...}. #>
+    param([object[]]$Records = @())
+    $field = { param($obj, $name) $prop = $obj.PSObject.Properties[$name]; if ($prop) { "$($prop.Value)" } else { '' } }
+    $items = foreach ($r in $Records) {
+        [pscustomobject]@{
+            Name = & $field $r 'Name'; PackageFamilyName = & $field $r 'PackageFamilyName'; Version = & $field $r 'Version'
+            RemovedAt = & $field $r 'RemovedAt'; Trigger = & $field $r 'Trigger'
+        } | ConvertTo-Json -Compress
+    }
+    return "[`n  " + (@($items) -join ",`n  ") + "`n]"
+}
+
+function Merge-StayGoneLogRecords {
+    <# Adds removals that appear in the log ("Removed X (trigger: Y)") but are
+       missing from the record file, e.g. entries lost to the v0.1.0 bug.
+       Rebuilt entries have no PackageFamilyName (the log doesn't hold it). #>
+    param([object[]]$Records = @(), [string[]]$LogLines = @())
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($r in $Records) { $out.Add($r) }
+    foreach ($line in $LogLines) {
+        if ($line -match '^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\s+Removed (\S+) \(trigger: (\w+)\)') {
+            $name = $Matches[3]; $when = "$($Matches[1])T$($Matches[2])"; $trigger = $Matches[4]
+            $known = @($out | Where-Object { $_.Name -eq $name -and "$($_.RemovedAt)" -eq $when })
+            if ($known.Count -eq 0) {
+                $out.Add([pscustomobject]@{ Name = $name; PackageFamilyName = ''; Version = ''; RemovedAt = $when; Trigger = $trigger })
+            }
+        }
+    }
+    return @($out.ToArray() | Sort-Object { "$($_.RemovedAt)" })
+}
+
+function Get-StayGoneRemovedRecords {
+    $paths = Get-StayGonePaths
+    $records = @()
+    if (Test-Path $paths.State) { $records = @(ConvertFrom-StayGoneRecordJson -Json (Get-Content $paths.State -Raw)) }
+    $log = @()
+    if (Test-Path $paths.Log) { $log = @(Get-Content $paths.Log) }
+    return @(Merge-StayGoneLogRecords -Records $records -LogLines $log)
 }
 
 # ------------------------------------------------------- system helpers
@@ -202,9 +318,10 @@ function Write-StayGoneLog {
 }
 
 function Get-StayGoneBlocklist {
+    <# Returns entries (Pattern, Ask) from the user's blocklist file. #>
     $paths = Get-StayGonePaths
     if (-not (Test-Path $paths.Blocklist)) { return @() }
-    return (ConvertFrom-BlocklistText -Lines (Get-Content $paths.Blocklist))
+    return @(ConvertFrom-BlocklistEntries -Lines (Get-Content $paths.Blocklist))
 }
 
 function Get-StayGoneSystemState {
@@ -260,14 +377,12 @@ function Add-StayGoneRemovedRecord {
     param([object]$Row, [string]$Trigger)
     $paths = Get-StayGonePaths
     $records = @()
-    if (Test-Path $paths.State) {
-        try { $records = @(Get-Content $paths.State -Raw | ConvertFrom-Json) } catch { $records = @() }
-    }
+    try { $records = @(Get-StayGoneRemovedRecords) } catch { $records = @() }
     $records += [pscustomobject]@{
         Name = $Row.Name; PackageFamilyName = $Row.PackageFamilyName; Version = "$($Row.Version)"
         RemovedAt = (Get-Date -Format 's'); Trigger = $Trigger
     }
-    ConvertTo-Json -InputObject @($records) -Depth 3 | Set-Content -Path $paths.State -Encoding UTF8
+    ConvertTo-StayGoneRecordJson -Records $records | Set-Content -Path $paths.State -Encoding UTF8
 }
 
 function Show-StayGoneNotification {
