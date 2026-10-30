@@ -12,7 +12,6 @@
 # Xbox apps (keep these if you play PC games through Xbox / Game Pass)
 Microsoft.GamingApp
 Microsoft.XboxApp
-Microsoft.Xbox.TCUI
 Microsoft.XboxSpeechToTextOverlay
 
 # Promoted / trial apps
@@ -35,6 +34,7 @@ Microsoft.549981C3F5F10
 # Optional - remove the '#' to block these too:
 # Microsoft.XboxGamingOverlay       # Game Bar (also does screen recording, Win+G)
 # Microsoft.XboxIdentityProvider    # needed to sign in to some PC games
+# Microsoft.Xbox.TCUI               # Xbox sign-in/friends window some games use (incl. some on Steam)
 # Microsoft.BingWeather
 # Microsoft.OutlookForWindows       # the new Outlook app
 # Microsoft.Copilot

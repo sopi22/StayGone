@@ -159,8 +159,9 @@ switch ($Command) {
         if ($pfn) {
             Write-Host "Opening its Microsoft Store page so you can reinstall it..."
             Start-Process "ms-windows-store://pdp/?PFN=$pfn"
-        } else {
-            Write-Host "To reinstall it, search for it in the Microsoft Store."
+        } elseif ($result.Changed) {
+            Write-Host "StayGone has no record of removing it, so if it's still installed there's nothing to reinstall."
+            Write-Host "If it is missing, search for it in the Microsoft Store."
         }
     }
 
