@@ -56,6 +56,11 @@ function Write-Plan([object[]]$Plan) {
     }
 }
 
+function Write-StaleNote($State) {
+    $n = @($State.Stale | Where-Object { Test-StayGoneMatch -Name $_.DisplayName -Patterns @(Get-StayGoneBlocklist) }).Count
+    if ($n) { Write-Host "Ignored $n leftover record(s) of blocklisted apps whose files are already gone (harmless)." -ForegroundColor DarkGray }
+}
+
 $paths = Initialize-StayGoneData -DefaultBlocklist $DefaultBlocklist
 
 switch ($Command) {
@@ -68,6 +73,7 @@ switch ($Command) {
             Write-Host "Not running as administrator: showing only YOUR apps, not other users' or the hidden copies." -ForegroundColor Yellow
         }
         Write-Plan $plan
+        Write-StaleNote $state
         Write-Host "Blocklist: $($paths.Blocklist)"
     }
 
@@ -76,6 +82,7 @@ switch ($Command) {
         $state = Get-StayGoneSystemState -AllUsers
         $plan = @(Get-StayGonePlan -Patterns @(Get-StayGoneBlocklist) -Installed $state.Installed -Provisioned $state.Provisioned)
         Write-Plan $plan
+        Write-StaleNote $state
         $removed = @(Invoke-StayGoneRemoval -Plan $plan -Trigger 'manual' -WhatIf:$WhatIfPreference)
         if ($WhatIfPreference) { Write-Host "WhatIf: nothing was changed." -ForegroundColor Cyan }
         elseif ($removed.Count) { Write-Host "Removed: $($removed -join ', ')" -ForegroundColor Green }

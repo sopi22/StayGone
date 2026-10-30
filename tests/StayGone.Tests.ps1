@@ -128,3 +128,25 @@ Describe 'New-StayGoneTaskXml' {
         (Select-Xml -Xml $xml -XPath '//t:Exec/t:Arguments' -Namespace $ns).Node.InnerText | Should -Match 'run-watch$'
     }
 }
+
+Describe 'Select-LiveProvisioned' {
+    It 'separates leftover records whose app folder is gone' {
+        $live  = [pscustomobject]@{ DisplayName = 'Clipchamp.Clipchamp'; InstallLocation = 'C:\Program Files\WindowsApps\Clipchamp_1\AppxMetadata\AppxBundleManifest.xml' }
+        $stale = [pscustomobject]@{ DisplayName = 'Microsoft.Getstarted'; InstallLocation = 'C:\Program Files\WindowsApps\Getstarted_1\AppxMetadata\AppxBundleManifest.xml' }
+        $exists = { param($p) $p -like '*Clipchamp_1' }
+        $r = Select-LiveProvisioned -Provisioned @($live, $stale) -PathExists $exists
+        @($r.Live).DisplayName | Should -Be 'Clipchamp.Clipchamp'
+        @($r.Stale).DisplayName | Should -Be 'Microsoft.Getstarted'
+    }
+    It 'checks the app folder, not the manifest file path' {
+        $seen = [System.Collections.ArrayList]::new()
+        $prov = [pscustomobject]@{ DisplayName = 'X'; InstallLocation = 'C:\WA\X_1\AppxMetadata\AppxBundleManifest.xml' }
+        $null = Select-LiveProvisioned -Provisioned @($prov) -PathExists { param($p) $null = $seen.Add($p); $true }
+        $seen[0] | Should -Be 'C:\WA\X_1'
+    }
+    It 'keeps entries with no install location as live' {
+        $r = Select-LiveProvisioned -Provisioned @([pscustomobject]@{ DisplayName = 'Y'; InstallLocation = '' }) -PathExists { $false }
+        @($r.Live).Count | Should -Be 1
+    }
+}
+

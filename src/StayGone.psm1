@@ -157,6 +157,22 @@ function Set-BlocklistEntryRestored {
     [pscustomobject]@{ Lines = @($out); Changed = $changed }
 }
 
+function Select-LiveProvisioned {
+    <# Splits provisioned entries into live ones and stale leftovers.
+       A stale entry points at an install folder that no longer exists:
+       Windows can't reinstall anything from it, and removing it fails with
+       "path not found", so StayGone ignores it. -PathExists is injectable
+       so tests don't touch the disk. #>
+    param([object[]]$Provisioned = @(), [scriptblock]$PathExists = { param($p) Test-Path -LiteralPath $p })
+    $live = @(); $stale = @()
+    foreach ($prov in $Provisioned) {
+        $location = "$($prov.InstallLocation)"
+        $folder = $location -replace '\\AppxMetadata\\[^\\]+$', '' -replace '\\[^\\]+\.xml$', ''
+        if ($location -and -not (& $PathExists $folder)) { $stale += $prov } else { $live += $prov }
+    }
+    [pscustomobject]@{ Live = $live; Stale = $stale }
+}
+
 # ------------------------------------------------------- system helpers
 
 function Test-StayGoneAdmin {
@@ -197,13 +213,16 @@ function Get-StayGoneSystemState {
     param([switch]$AllUsers)
     $installed = @()
     $provisioned = @()
+    $stale = @()
     if ($AllUsers) {
         $installed = @(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue)
-        $provisioned = @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue)
+        $split = Select-LiveProvisioned -Provisioned @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue)
+        $provisioned = $split.Live
+        $stale = $split.Stale
     } else {
         $installed = @(Get-AppxPackage -ErrorAction SilentlyContinue)
     }
-    [pscustomobject]@{ Installed = $installed; Provisioned = $provisioned }
+    [pscustomobject]@{ Installed = $installed; Provisioned = $provisioned; Stale = $stale }
 }
 
 function Invoke-StayGoneRemoval {
