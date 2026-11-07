@@ -15,7 +15,12 @@ jobs:
       - name: Run Pester tests (Windows PowerShell 5.1)
         shell: powershell
         run: |
-          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.5
+          # PowerShell Gallery sometimes doesn't answer for a minute.
+          # Try a few times before giving up, so a short outage isn't a failed run.
+          for ($i = 1; $i -le 4; $i++) {
+            try { Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.5 -ErrorAction Stop; break }
+            catch { if ($i -eq 4) { throw }; Write-Host "Gallery not reachable (try $i), waiting..."; Start-Sleep -Seconds (20 * $i) }
+          }
           Import-Module Pester -MinimumVersion 5.5
           $c = New-PesterConfiguration
           $c.Run.Path = '.\tests'
